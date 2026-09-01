@@ -29,14 +29,11 @@ export default function App() {
           fontSize: 34,
           fontWeight: 500,
           color: "#1F1B16",
-          margin: "0 0 8px 0",
+          margin: "0 0 20px 0",
           letterSpacing: "-0.02em"
         }}>
           ✍️ Writing Practice
         </h1>
-        <p style={{ fontSize: 15, color: "#6B5D54", marginBottom: 36, lineHeight: 1.6 }}>
-          Choose an exercise to begin.
-        </p>
 
         <div
           style={cardStyle}
