@@ -1829,7 +1829,7 @@ export default function App({ onBack }) {
                 fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12,
                 color: "#6B5D54", lineHeight: 1.5, marginTop: 4
               }}>
-                Use these tabs to read your source documents while you write. You may refer to them at any time.
+                Use these tabs to read your source documents and refer to the essay and language guides while you write. You may refer to them at any time.
               </div>
             </div>
             <div className="a2-tabbar">
