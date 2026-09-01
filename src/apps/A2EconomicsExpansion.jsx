@@ -585,6 +585,7 @@ Your students write at a B1-B2 level. If a passage is dramatically more advanced
 FEEDBACK RULES (CRITICAL)
 - For attempts 1, 2 and 3: NEVER write a full corrected essay. Set "sampleEssay" to null.
 - For every lost point, add an issue that EXPLAINS what is missing or wrong in simple words and gives a HINT for how to fix it. NEVER write the corrected sentence or paragraph for them.
+- PER-PARAGRAPH COVERAGE IS MANDATORY. If "introduction" is below 20 there MUST be at least one issue with "category": "introduction". If "mainBody" is below 40 there MUST be at least one issue with "category": "mainBody". If "conclusion" is below 15 there MUST be at least one issue with "category": "conclusion". This applies to the conclusion even when it only loses one or two points or is very short. Never lower a paragraph's score without a matching issue for that exact category.
 - Keep each issue short and use clear, simple language.
 - Always include a genuine positive note in "encouragement".
 
@@ -629,7 +630,9 @@ Use this exact schema:
   "sampleEssay": <null or a 300-350 word string with three paragraphs separated by a blank line>
 }
 
-Only include issues for categories where points were lost. If a category is full marks, do not add an issue for it.`;
+Only include issues for categories where points were lost. If a category is full marks, do not add an issue for it.
+
+Write the "category" value EXACTLY as listed: introduction, mainBody, conclusion, references, presentation, connectors, language. The third paragraph is always "conclusion" — never "p3", "paragraph3", "Conclusion" or "3". The "issues" array must be complete and valid; put it before "sampleEssay" and keep every issue short so the JSON is never cut off.`;
 
 // Compact per-paragraph coach used by the "Check this paragraph" button.
 // Deliberately never returns a score or a model answer.
@@ -808,6 +811,46 @@ function ensureEndPunct(text) {
   return trimmed + ".";
 }
 
+// The grader is told to use these exact category keys, but occasionally labels
+// an issue "p3", "Conclusion", "paragraph 3" etc. Anything unrecognised there
+// would silently vanish from the paragraph it belongs to (this is what was
+// dropping Paragraph 3 feedback), so map the common variants back.
+const CATEGORY_ALIASES = {
+  intro: "introduction", introduction: "introduction",
+  p1: "introduction", paragraph1: "introduction", "paragraph 1": "introduction",
+  main: "mainBody", mainbody: "mainBody", "main body": "mainBody", body: "mainBody",
+  p2: "mainBody", paragraph2: "mainBody", "paragraph 2": "mainBody",
+  conclusion: "conclusion", conc: "conclusion", "3": "conclusion",
+  p3: "conclusion", paragraph3: "conclusion", "paragraph 3": "conclusion",
+  reference: "references", references: "references", citation: "references", citations: "references", apa: "references",
+  presentation: "presentation", format: "presentation",
+  connector: "connectors", connectors: "connectors", linking: "connectors",
+  language: "language", grammar: "language", vocabulary: "language"
+};
+
+function normalizeCategory(cat) {
+  if (CATEGORY_MAX[cat]) return cat;
+  const key = String(cat || "").trim().toLowerCase();
+  return CATEGORY_ALIASES[key] || key;
+}
+
+// Gentle fallback shown above a paragraph when the grader docked its score but
+// forgot to return a matching issue, so students never lose points invisibly.
+const FALLBACK_PARA_ISSUE = {
+  introduction: {
+    what: "A few marks were lost on the introduction.",
+    hint: "Check that you describe the company, say why the two countries are compared, state a clear recommendation, and give a short roadmap."
+  },
+  mainBody: {
+    what: "A few marks were lost on the main body.",
+    hint: "Make sure you compare BOTH countries on the news, two economic indicators, one incentive and two World Bank indicators, each with a citation."
+  },
+  conclusion: {
+    what: "A few marks were lost on the conclusion.",
+    hint: "Check that you clearly restate your recommendation and say something specific about the future of the business in that country."
+  }
+};
+
 function sanitizeFeedback(feedback) {
   if (!feedback || !feedback.scores) return feedback;
 
@@ -823,10 +866,19 @@ function sanitizeFeedback(feedback) {
   const issues = Array.isArray(feedback.issues)
     ? feedback.issues.map(issue => ({
         ...issue,
+        category: normalizeCategory(issue.category),
         what: ensureEndPunct(issue.what),
         hint: ensureEndPunct(issue.hint)
       }))
     : [];
+
+  // Safety net: if a paragraph lost points but has no issue of its own, add a
+  // gentle fallback so its feedback still renders above that paragraph.
+  for (const cat of PARA_CATEGORIES) {
+    if (scores[cat] < CATEGORY_MAX[cat] && !issues.some(i => i.category === cat)) {
+      issues.push({ category: cat, ...FALLBACK_PARA_ISSUE[cat] });
+    }
+  }
 
   return {
     ...feedback,
@@ -845,7 +897,72 @@ function extractJson(rawResp) {
   const lastBrace = cleaned.lastIndexOf("}");
   const jsonStr =
     firstBrace >= 0 && lastBrace > firstBrace ? cleaned.slice(firstBrace, lastBrace + 1) : cleaned;
-  return JSON.parse(jsonStr);
+  try {
+    return JSON.parse(jsonStr);
+  } catch (e) {
+    // The response was cut off (e.g. the model hit its token limit) before the
+    // JSON closed, which strands the later parts of the feedback — the
+    // conclusion issues in particular, since they come after the introduction
+    // and main-body ones. Salvage every complete piece we did receive.
+    const salvaged = salvageFeedbackJson(cleaned.slice(firstBrace < 0 ? 0 : firstBrace));
+    if (salvaged) return salvaged;
+    throw e;
+  }
+}
+
+// Best-effort recovery from a truncated grader response. Pulls out the scores
+// object, the scalar fields, and every issue object that closed cleanly —
+// including a conclusion issue that arrived just before the response was cut.
+function salvageFeedbackJson(body) {
+  const scoresMatch = body.match(/"scores"\s*:\s*(\{[^{}]*\})/);
+  if (!scoresMatch) return null;
+  let scores;
+  try { scores = JSON.parse(scoresMatch[1]); } catch (e) { return null; }
+
+  const strField = (name) => {
+    const m = body.match(new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
+    try { return m ? JSON.parse(`"${m[1]}"`) : undefined; } catch (e) { return undefined; }
+  };
+  const numField = (name) => {
+    const m = body.match(new RegExp(`"${name}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`));
+    return m ? Number(m[1]) : undefined;
+  };
+
+  const issues = [];
+  const issuesStart = body.indexOf('"issues"');
+  const arrStart = issuesStart >= 0 ? body.indexOf("[", issuesStart) : -1;
+  if (arrStart >= 0) {
+    let depth = 0, objStart = -1, inStr = false, esc = false;
+    for (let i = arrStart + 1; i < body.length; i++) {
+      const ch = body[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === "\\") esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') { inStr = true; }
+      else if (ch === "{") { if (depth === 0) objStart = i; depth++; }
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0 && objStart >= 0) {
+          try { issues.push(JSON.parse(body.slice(objStart, i + 1))); } catch (e) { /* skip partial */ }
+          objStart = -1;
+        }
+      } else if (ch === "]" && depth === 0) {
+        break;
+      }
+    }
+  }
+
+  return {
+    scores,
+    totalScore: numField("totalScore"),
+    encouragement: strField("encouragement"),
+    voiceConcern: /"voiceConcern"\s*:\s*null/.test(body) ? null : (strField("voiceConcern") ?? null),
+    issues,
+    sampleEssay: null
+  };
 }
 
 // Build a client-side "strengths" list from the category scores, since the
@@ -1339,7 +1456,7 @@ export default function App({ onBack }) {
   };
 
   const callGrader = async (userPrompt) => {
-    const rawResp = await rawGrade({ system: SYSTEM_PROMPT, userPrompt, maxTokens: 2500 });
+    const rawResp = await rawGrade({ system: SYSTEM_PROMPT, userPrompt, maxTokens: 4000 });
     let parsed;
     try {
       parsed = extractJson(rawResp);
@@ -1695,6 +1812,26 @@ export default function App({ onBack }) {
         <div className="a2-panels">
           {/* LEFT PANEL */}
           <div className="a2-left">
+            <div style={{
+              padding: "14px 16px 12px",
+              background: "#FBF6EA",
+              borderTop: "3px solid #2D5043",
+              borderBottom: "1px solid #E8E0D0",
+              borderRadius: "12px 12px 0 0"
+            }}>
+              <div style={{
+                fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600,
+                color: "#1F1B16", display: "flex", alignItems: "center", gap: 7
+              }}>
+                📂 Reference Panel
+              </div>
+              <div style={{
+                fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12,
+                color: "#6B5D54", lineHeight: 1.5, marginTop: 4
+              }}>
+                Use these tabs to read your source documents while you write. You may refer to them at any time.
+              </div>
+            </div>
             <div className="a2-tabbar">
               {tabs.map(t => (
                 <button
