@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import useSessionLog from "../hooks/useSessionLog.js";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
@@ -8,30 +9,9 @@ import {
 // LOGGING CONFIG
 // Submissions are sent to the Vercel proxy which writes to Airtable.
 // ─────────────────────────────────────────────────────────────────────────────
-const LOGGER_URL = "https://writing-app-logger.vercel.app/api/log-a2";
 const GRADER_URL = "https://writing-app-logger.vercel.app/api/grade";
 
-function logToAirtable({ firstName, surname, teacher, attemptNumber, submission, totalScore }) {
-  setTimeout(() => {
-    try {
-      fetch(LOGGER_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          "Student Name": String(`${firstName} ${surname}`.trim()),
-          "Teacher":      String(teacher || ""),
-          "Timestamp":    new Date().toISOString(),
-          "App":          "a2-business",
-          "Text Title":   "PepsiCo",
-          "Attempts":     Number(attemptNumber || 1),
-          "Submission":   String(submission || "").slice(0, 2000),
-          "Score":        Number(totalScore || 0),
-          "Max Score":    20
-        })
-      }).catch(() => {});
-    } catch (e) { /* never surface */ }
-  }, 0);
-}
+// Logging: one Airtable record per session, see ../hooks/useSessionLog.js
 
 const TEACHERS = ["Miriam", "Yohanna", "Rita", "Keren", "Daniel", "Chana", "Louise"];
 
@@ -780,6 +760,8 @@ export default function App({ onBack }) {
   const [firstName, setFirstName] = useState("");
   const [surname, setSurname] = useState("");
   const [teacher, setTeacher] = useState("");
+  const sessionLog = useSessionLog({ app: "a2-business", maxScore: MAX_SCORE, firstName, surname, teacher, url: "https://writing-app-logger.vercel.app/api/log-a2" });
+  const handleBack = onBack ? () => { sessionLog.end(); onBack(); } : undefined;
   const [stage, setStage] = useState("welcome"); // welcome | work
 
   const [warmup, setWarmup] = useState({ q1i: "", q1ii: "", q2a: "", q2b: "" });
@@ -909,14 +891,7 @@ export default function App({ onBack }) {
       setCurrentFeedback(feedback);
       setSessionBest(prev => Math.max(prev, feedback.totalScore));
       setAttempts(prev => [...prev, { p1: t1, p2: t2, p3: t3, feedback }]);
-      logToAirtable({
-        firstName,
-        surname,
-        teacher,
-        attemptNumber: thisAttempt,
-        submission: `${t1}\n\n${t2}\n\n${t3}`,
-        totalScore: feedback.totalScore
-      });
+      sessionLog.recordAttempt("PepsiCo", feedback.totalScore);
     } catch (e) {
       const msg = e && e.message ? e.message : "unknown error";
       setError(`Sorry, something went wrong getting your feedback. Please try again in a moment. (${msg.slice(0, 120)})`);
@@ -1033,7 +1008,7 @@ export default function App({ onBack }) {
       <div style={pageWrap}>
         {styleTag}
         <div style={{ maxWidth: 720, margin: "0 auto" }}>
-          <TopBar onBack={onBack} />
+          <TopBar onBack={handleBack} />
           <Title />
           <section style={cardStyle} className="mit-fade-in a2-card-pad">
             <h2 style={welcomeH}>👋 Welcome! Please introduce yourself.</h2>
@@ -1078,7 +1053,7 @@ export default function App({ onBack }) {
     <div style={pageWrap}>
       {styleTag}
       <div style={{ maxWidth: 820, margin: "0 auto" }}>
-        <TopBar onBack={onBack} student={`${firstName} ${surname}`} teacher={teacher} />
+        <TopBar onBack={handleBack} student={`${firstName} ${surname}`} teacher={teacher} />
         <Title />
 
         {/* QUESTION */}

@@ -1,33 +1,13 @@
 import { useState, useRef, useEffect } from "react";
+import useSessionLog from "../hooks/useSessionLog.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LOGGING CONFIG
 // Submissions are sent to the Vercel proxy which writes to Airtable.
 // This app uses its own logging endpoint (a2-economics has a wider schema).
 // ─────────────────────────────────────────────────────────────────────────────
-const LOGGER_URL = "https://writing-app-logger.vercel.app/api/log-a2";
 
-function logToAirtable({ firstName, surname, teacher, scenarioTitle, attemptNumber, submission, totalScore }) {
-  setTimeout(() => {
-    try {
-      fetch(LOGGER_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          "Student Name": String(`${firstName} ${surname}`.trim()),
-          "Teacher":      String(teacher       || ""),
-          "Timestamp":    new Date().toISOString(),
-          "App":          "a2-economics",
-          "Text Title":   String(scenarioTitle || ""),
-          "Attempts":     Number(attemptNumber || 1),
-          "Submission":   String(submission    || "").slice(0, 2000),
-          "Score":        Number(totalScore    || 0),
-          "Max Score":    100
-        })
-      }).catch(() => {});
-    } catch (e) { /* never surface */ }
-  }, 0);
-}
+// Logging: one Airtable record per session, see ../hooks/useSessionLog.js
 
 const TEACHERS = ["Yohanna", "Rita", "Keren", "Daniel"];
 
@@ -1388,6 +1368,8 @@ export default function App({ onBack }) {
   const [firstName, setFirstName] = useState("");
   const [surname, setSurname] = useState("");
   const [teacher, setTeacher] = useState("");
+  const sessionLog = useSessionLog({ app: "a2-economics", maxScore: 100, firstName, surname, teacher, url: "https://writing-app-logger.vercel.app/api/log-a2" });
+  const handleBack = onBack ? () => { sessionLog.end(); onBack(); } : undefined;
   const [stage, setStage] = useState("welcome"); // welcome | scenario | work
   const [selectedScenarioId, setSelectedScenarioId] = useState("");
   const [activeTab, setActiveTab] = useState(1);
@@ -1419,6 +1401,7 @@ export default function App({ onBack }) {
   }, [currentFeedback]);
 
   const resetWork = () => {
+    sessionLog.end();
     setP1(""); setP2(""); setP3("");
     setAttempts([]);
     setCurrentFeedback(null);
@@ -1535,15 +1518,7 @@ export default function App({ onBack }) {
       setCurrentFeedback(feedback);
       setSessionBest(prev => Math.max(prev, feedback.totalScore));
       setAttempts(prev => [...prev, { p1: t1, p2: t2, p3: t3, feedback }]);
-      logToAirtable({
-        firstName,
-        surname,
-        teacher,
-        scenarioTitle: selectedScenario.title,
-        attemptNumber: attempts.length + 1,
-        submission: combined,
-        totalScore: feedback.totalScore
-      });
+      sessionLog.recordAttempt(selectedScenario.title, feedback.totalScore);
     } else {
       const msg = lastErr && lastErr.message ? lastErr.message : "unknown error";
       setError(`Sorry, something went wrong getting your feedback. Please try again in a moment. (${msg.slice(0, 120)})`);
@@ -1688,7 +1663,7 @@ export default function App({ onBack }) {
       <div style={pageWrap}>
         {styleTag}
         <div style={{ maxWidth: 720, margin: "0 auto" }}>
-          <TopBar onBack={onBack} />
+          <TopBar onBack={handleBack} />
           <Title />
           <section style={cardStyle} className="mit-fade-in">
             <h2 style={welcomeH}>👋 Welcome! Please introduce yourself.</h2>
@@ -1729,7 +1704,7 @@ export default function App({ onBack }) {
       <div style={pageWrap}>
         {styleTag}
         <div style={{ maxWidth: 780, margin: "0 auto" }}>
-          <TopBar onBack={onBack} student={`${firstName} ${surname}`} teacher={teacher} />
+          <TopBar onBack={handleBack} student={`${firstName} ${surname}`} teacher={teacher} />
           <Title />
           <section style={cardStyle} className="mit-fade-in">
             <h2 style={welcomeH}>🗂️ Choose your scenario</h2>
@@ -1803,7 +1778,7 @@ export default function App({ onBack }) {
       {styleTag}
       <div style={{ maxWidth: 1220, margin: "0 auto" }}>
         <TopBar
-          onBack={onBack}
+          onBack={handleBack}
           student={`${firstName} ${surname}`}
           teacher={teacher}
           onChangeScenario={() => { setStage("scenario"); }}
