@@ -28,6 +28,10 @@ const SCENARIOS = [
   {
     id: "supercom",
     title: "SuperCom — India vs Cyprus",
+    referenceFiles: {
+      label: "Supercom Reference Files",
+      url: "https://drive.google.com/drive/folders/1zgzOCpEuyZtGobhaSMhum7VY8jlC9qhF?usp=sharing"
+    },
     logo: "💼",
     sector: "Digital identity, e-government and cybersecurity technology.",
     company: {
@@ -179,6 +183,10 @@ const SCENARIOS = [
   {
     id: "caesarstone",
     title: "Caesarstone — Greece vs Romania",
+    referenceFiles: {
+      label: "Caesarstone Reference Files",
+      url: "https://drive.google.com/drive/folders/1nBRrsbhgdiX07N-3YcNTg5YglpyLEkgs?usp=drive_link"
+    },
     logo: "💼",
     sector: "Engineered quartz surfaces for kitchens and interiors.",
     company: {
@@ -1794,6 +1802,17 @@ export default function App({ onBack }) {
               borderBottom: "1px solid #E8E0D0",
               borderRadius: "12px 12px 0 0"
             }}>
+              {selectedScenario && selectedScenario.referenceFiles && (
+                <a
+                  className="mit-btn mit-btn-primary mit-btn-sm"
+                  href={selectedScenario.referenceFiles.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: "inline-block", textDecoration: "none", marginBottom: 10 }}
+                >
+                  📁 {selectedScenario.referenceFiles.label} ↗
+                </a>
+              )}
               <div style={{
                 fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600,
                 color: "#1F1B16", display: "flex", alignItems: "center", gap: 7
@@ -2077,7 +2096,7 @@ function Title() {
   return (
     <header style={{ marginBottom: 20, paddingLeft: 4 }}>
       <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: 30, fontWeight: 500, margin: 0, letterSpacing: "-0.02em", color: "#1F1B16" }}>
-        Business Expansion Report
+        Economics: Global Expansion Report Writing Tutor
       </h1>
       <p style={{ fontSize: 14.5, color: "#6B5D54", margin: "6px 0 0 0", lineHeight: 1.5, maxWidth: 620 }}>
         Advanced 2 Economics. You are a consultant at an international firm. Read the reference panel, write a
